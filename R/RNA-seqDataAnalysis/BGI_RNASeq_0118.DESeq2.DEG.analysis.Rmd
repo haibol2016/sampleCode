@@ -1,0 +1,313 @@
+---
+title: WT, YOX1, YHP1, and YHP1:YOX1 yeasts gene expression profiling
+csl: nature.csl
+output:
+  pdf_document:
+    toc: yes
+  html_notebook:
+    code_folding: show
+    toc: yes
+    toc_float: yes
+  html_document:
+    toc: yes
+---
+    
+```{r setup, include = FALSE}
+Sys.setenv(JAVA_HOME='/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/jre/') # for 64-bit version
+## This line is important for rJava to be loaded
+dyn.load('/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/jre/lib/server/libjvm.dylib')
+library(rJava)
+options(java.parameters="-Xmx4000m")
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+
+library(pca3d)
+library(sva)
+library(limma)
+library(rgl)
+library(DESeq2)
+library(edgeR)
+library("pheatmap")
+library("RColorBrewer")
+library(ggplot2)
+library(dplyr)
+library("genefilter")
+library("AnnotationDbi")
+library("org.Sc.sgd.db")
+```
+
+# TODO list
+1.Experimental design:  
+    *    Genotypes: Wild type (WT), YOX1-9A, YHP1-13A, and YHP1-9A:YOX1-13A. YOX1 and YHP1 are phosphorylation sites mutated and which result in more stable proteins;  
+    *    Replicates: A, B and C  
+    *    RNA from the 12 samples were ployA-enriched and sequenced by BGI, producing ~ 20M of 50 bp single end reads  
+
+2.Differential expression analyses for the following constrasts:  
+    *    YHP1-WT  
+    *    YHP1;YOX1-WT  
+    *    YOX1-WT  
+    *    YHP1;YOX1-YHP1  
+    *    YHP1;YOX1-YOX1  
+    *    (YHP1;YOX1-YHP1)-(YOX1-WT)  
+
+3.Results-figures and tables  
+    *    All files could be downloaded from [here](./).
+
+
+## 1. Alignment of RNA-seq data to S. cerevisae (Scer3) expression matrix for all genes, including gene names along with ORF IDs in the file. This alignment was done using STAR and RSEM to get the count table and FPKM,respectively.
+
+## 2. Differential expression analyses were done using DESeq2
+
+
+```{r echo = FALSE}
+################## Plot.3DPCA ##################################################
+
+plot.3dPCA <- function(exp.data, meta.data , filename, legend=F) 
+{
+    defaultWindRect <- r3dDefaults$windowRect
+    r3dDefaults$windowRect <- c(0, 50, 600, 600)
+    on.exit({r3dDefaults$windowRect <- defaultWindRect})
+    
+    pc <- prcomp(t(exp.data), scale=T, center=T, retx=TRUE)
+    
+    #colors <- c("black", "red","purple", "blue", "green","yellow", "orange", "grey")
+    plot3d(pc$x[,1:3], col=as.integer(meta.data$genotypes),size =10, aspect =T)
+    
+    # plot3d(pc$x[,1:3], col=meta.data$col,size =10, aspect =T)
+    
+    if(legend)
+    {
+        pca3d( pc, components = 1:3, col=as.integer(meta.data$genotypes),
+               show.ellipses= F, group=meta.data$genotypes, radius=2, 
+               shape="sphere", show.axes=TRUE, show.axe.titles=T, show.plane=F, legend="topright") 
+    }else{
+        pca3d( pc, components = 1:3, col=as.integer(meta.data$genotypes), 
+               show.ellipses= F, group=meta.data$genotypes, radius=2, 
+               shape="sphere", show.axes=TRUE, show.axe.titles=T, show.plane=F) 
+    }
+}
+
+
+## output file name should be space-free
+
+make.movie <- function(out.file=NULL)
+{
+    rgl.snapshot(filename=paste0(out.file,".png"), fmt = "png", top = TRUE )
+    
+    #Animate by spinning on Y & Z axes
+    play3d(spin3d(axis=c(0,0,1), rpm=3), duration=10)
+    
+    movie3d(spin3d(axis = c(0,0,1), rpm = 3), duration = 60, movie=out.file,dir = getwd())
+}
+```
+
+```{r echo = TRUE, fig.width = 8, fig.height = 8, include = TRUE}
+##### input read count table
+count <- read.delim("Table.2.YOX1.YHP1.WT.RNA-seq.count.table.txt", row.names =1)
+head(count)
+count <- as.matrix(count)
+colnames(count)
+
+##### meta data
+genotypes <- c("YHP1", "YOX1", "YHP1;YOX1", "WT")
+replicates <- c("A", "B", "C")
+
+sample_ID <- outer(c("X242", "X246", "X262", "X307"), replicates, paste, sep="")
+
+meta <- data.frame(sample_ID = sort(as.vector(sample_ID )), 
+                   genotypes = factor(rep(genotypes, each = 3)))
+meta
+##### reorder the columns of the count table
+
+count <- count[, meta$sample_ID]
+all(meta$sample_ID == colnames(count))
+
+barplot(colSums(count)/1000000, width=0.8, xlim=c(0,12), ylim=c(0,25),
+        ylab="Number of reads assigned to genes",
+        names.arg = gsub("X", "", colnames(count)), las=2)
+
+```
+
+```{r echo = FALSE, results = 'hide'}
+
+##### number of reads assigned to gene features
+
+pdf("Figure.1. Number of fragments assigned to gene features.pdf", width=4, height=5)
+barplot(colSums(count)/1000000, width=0.8, xlim=c(0,12), ylim=c(0,25),
+        ylab="Number of reads assigned to genes",
+        names.arg = gsub("X", "", colnames(count)), las=2)
+dev.off()
+```
+
+```{r echo = TRUE, fig.width = 8, fig.height = 8, results='asis', include = TRUE}
+
+## filtering count table using cpm >1 of edgeR
+keep <- rowSums(cpm(count)>1) >= 3
+count <- count[keep,]
+dim(count)   ## 6130
+
+dds.0 <- DESeqDataSetFromMatrix(countData = count,
+                                 colData = meta,
+                                 design = ~0+genotypes)
+dds.0 <- estimateSizeFactors(dds.0)
+norm.count <- counts(dds.0, normalized=TRUE)
+
+dds <- DESeqDataSetFromMatrix(countData = round(norm.count),
+                                 colData = meta,
+                                 design = ~0+genotypes)
+### exploratory analysis
+rld <- rlog(dds, blind = FALSE)
+sampleDists <- dist(t(assay(rld)))
+
+#### Heatmap showing sample distances
+
+sampleDistMatrix <- as.matrix(sampleDists )
+rownames(sampleDistMatrix) <- gsub("X", "", rld$sample_ID)
+colnames(sampleDistMatrix) <- gsub("X", "", rld$sample_ID)
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+```
+
+```{r echo = FALSE, results = 'hide'}
+
+pdf("Figure 2.Heatmap showing sample distances.pdf", width=5, height =4)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+dev.off()
+
+## PCA plot showing sample relationship between and within groups
+
+pdf("Figure 3. PCA and MDS plots showing sample relationahip.pdf", width=5, height=5)
+
+plotPCA(rld, intgroup = c("genotypes"))
+
+## MDS plot showing sample relationship between and within groups
+mds <- as.data.frame(colData(rld))  %>%
+    cbind(cmdscale(sampleDistMatrix))
+
+ggplot(mds, aes(x = `1`, y = `2`, color = genotypes)) +
+    geom_point(size = 3) + coord_fixed()
+
+dev.off()
+
+```
+
+```{r eval = FALSE}
+## 3D-PCA plotting with raw data
+plot.3dPCA(exp.data=assay(rld), meta.data=meta, legend=T) 
+make.movie(out.file ="raw.expression-based.3D-PCA.plot.12.samples")
+```
+[Raw expression-based 3D PCA plots](./raw.expression-based.3D-PCA.plot.12.samples.gif)
+
+
+
+```{r echo = TRUE, message = FALSE}
+#### prepare contrasts for DE analysis
+
+uniq.groups <- as.character(unique(meta$genotypes)) 
+
+design <- model.matrix(~0+genotypes, data=meta)
+colnames(design) <- gsub("genotypes", "", colnames(design))
+
+contrasts <- matrix(c(c(-1, 1, 0, 0),  ## YHP1 - WT
+                          c(-1, 0, 1, 0),    ## YHP1;YOX1 - WT
+                          c(-1, 0, 0, 1),    ## YOX1 -WT
+                          c(0, -1, 1, 0),    ## YHP1;YOX1 - YHP1
+                          c(0, 0, 1, -1),    ## YHP1;YOX1 - YOX1
+                          c(1, -1, 1, -1)),  ## interaction: (YHP1;YOX1 - YHP1) - (YOX1 - WT)
+                          nrow = 6, byrow = T)
+
+rownames(contrasts) <- c("YHP1.Vs.WT", "YHP1;YOX1.Vs.WT", "YOX1.Vs.WT", "YHP1;YOX1.Vs.YHP1", 
+                             "YHP1;YOX1.Vs.YOX1", "Interaction")
+
+dds <- DESeqDataSetFromMatrix(countData = count,
+                                 colData = meta,
+                                 design = ~0+genotypes)
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+dds <- DESeq(dds, betaPrior = FALSE)
+dds <- nbinomWaldTest(dds, betaPrior=FALSE, modelMatrix = model.matrix(~0+genotypes, data=meta))
+res <- results(dds)
+
+
+
+outputXls <- function(i, dds, contrasts)
+{
+
+    res <- results(dds, contrast=contrasts[i, ])
+    
+    summary(res)
+    ### annotation and exporting results
+    res$symbol <- mapIds(org.Sc.sgd.db,
+                         keys=row.names(res),
+                         column="GENENAME",
+                         keytype="ENSEMBL",
+                         multiVals="first")
+    res$entrez <- mapIds(org.Sc.sgd.db,
+                         keys=row.names(res),
+                         column="ENTREZID",
+                         keytype="ENSEMBL",
+                         multiVals="first")
+    resOrdered <- res[order(res$pvalue),]
+    resOrderedDF <- as.data.frame(resOrdered)
+    
+    ## MA plots
+    pdf(paste0("Figure 4. MA plot showing", rownames(contrasts)[i], 
+    "DE genes fold change and mean normalized count \
+    before and after shrinkening fold changes.pdf"))
+    # res <- lfcShrink(dds, contrast=contrasts[i,], res=res)
+    # DESeq2::plotMA(res, main="MA plots with log fold change shrinkened")
+    
+    ## no shrinkage
+    res.noshr <- results(dds)
+    DESeq2::plotMA(res.noshr, main="MA plots with original log fold change")
+    dev.off()
+    
+    ### plot histogram of raw p values
+    pdf(paste0("Figure 5.", rownames(contrasts)[i], "Histogram of raw P values.pdf"))
+    hist(res$pvalue[res$baseMean > 1], breaks = 100,
+         col = "grey50", border = "white")
+    dev.off()
+    
+    
+    ### top variant genes
+    if (i == 1)
+    {
+        topVarGenes <- head(order(rowVars(assay(rld)), decreasing = TRUE), 500)
+        mat  <- assay(rld)[ topVarGenes, ]
+        mat  <- t(scale(t(mat)))
+        anno <- data.frame(group=meta$genotypes)
+        rownames(anno) <- meta$sample_ID
+        pdf(paste0("Figure 6.", "Heatmap showing top 1000 most variable genes.pdf"), height=80, width=10)
+        pheatmap(mat, annotation_col= anno, fontsize_number = 0.5)
+        dev.off() 
+    }
+    resOrderedDF
+}
+
+
+out <- lapply(1:nrow(contrasts), outputXls, dds, contrasts)
+names(out) <- rownames(contrasts)
+require(WriteXLS, quietly = TRUE)
+file = "Differentially expressed genes related to YOX1 and YHP1-2.xlsx"
+
+##x can be a list object containing data frames; this function is more efficient than write.xlsx()
+WriteXLS(x = out, 
+         ExcelFileName = file, row.names = TRUE, SheetNames = rownames(contrasts))
+```
+## [Click here to see DEGs tables](./Differentially expressed genes related to YOX1 and YHP1-2.xlsx)
+
+
+```{r echo = TRUE}
+## Add gene symbols to RPKM table
+FPKM <- read.delim("/Users/ouj/Desktop/Jennifer/BGI_RNAseq_0118/Table1.BGI_RNAseq_0118_YOX1.YHP1.RNA-seq.RSEM.FPKM.table.txt", header = T, as.is=T)
+symbols <-  read.delim("Yeast.gene.symbols.txt")
+FPKM.symbols <- merge(FPKM, symbols, by.x="GeneID", by.y="Gene.stable.ID", all.x=TRUE)
+WriteXLS(x=FPKM.symbols, ExcelFileName ="RNAseq_0118_YOX1.YHP1.RNA-seq.RSEM.FPKM.table.xlsx", row.names = TRUE, SheetNames="FPKM")
+```
+## [Click here to see the FPKM table](./RNAseq_0118_YOX1.YHP1.RNA-seq.RSEM.FPKM.table.xlsx)  
+
