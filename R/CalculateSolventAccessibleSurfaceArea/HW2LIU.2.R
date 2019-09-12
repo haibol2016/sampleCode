@@ -38,7 +38,8 @@ readPDB <- function(file=NULL)
     
     # convert text to a data frame
     all.coords <- read.table(textConnection(coord.lines), header=F, stringsAsFactors=F)
-    colnames(all.coords)<- c("Atom", "AtomNumber", "AtomName","Residue", "Chain", "ResidueNumber", "X", "Y","Z","Occupancy","TempFactor","Symbol")
+    colnames(all.coords)<- c("Atom", "AtomNumber", "AtomName","Residue", "Chain", 
+                             "ResidueNumber", "X", "Y","Z","Occupancy","TempFactor","Symbol")
     all.coords
 }
 
@@ -134,7 +135,8 @@ isBuried <- function(probeCenter=c(x1,y1,z1), neighborAtomCenter = t(all.coords)
 #                                                                                             #
 ###############################################################################################
 
-getAtomSASA <- function(atomNum = 1,all.coords = all.coords, atomNames=atomNames, total.atoms=total.atoms, avgPointArea=avgPointArea)
+getAtomSASA <- function(atomNum = 1,all.coords = all.coords, atomNames=atomNames, 
+                        total.atoms=total.atoms, avgPointArea=avgPointArea)
 {
     atomSymbol <- atomNames[atomNum]
     
@@ -182,7 +184,8 @@ avgPointArea <- getAvgPointArea(num=numUnifPoints, atomRadius=vdw.radii)
 atomSASA <-vector("numeric", nrow(all.coords)) 
 system.time (for ( i in 1: total.atoms)
 {
-    atomSASA[i] <- getAtomSASA(atomNum = i, all.coords = all.coords, atomNames=atomNames, total.atoms=total.atoms, avgPointArea=avgPointArea)
+    atomSASA[i] <- getAtomSASA(atomNum = i, all.coords = all.coords, 
+                               atomNames=atomNames, total.atoms=total.atoms, avgPointArea=avgPointArea)
     print(i)
 })
 
@@ -199,7 +202,8 @@ for (trial in 1:15)
     atomSASA <-vector("numeric", nrow(all.coords))
     for ( i in 1: total.atoms)
     {
-        atomSASA[i] <- getAtomSASA(atomNum = i, all.coords = all.coords, atomNames=atomNames, total.atoms=total.atoms, avgPointArea=avgPointArea)
+        atomSASA[i] <- getAtomSASA(atomNum = i, all.coords = all.coords, 
+                                   atomNames=atomNames, total.atoms=total.atoms, avgPointArea=avgPointArea)
         print(i)
     } 
     areaOfAtom <- areaOfAtom +atomSASA
