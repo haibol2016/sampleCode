@@ -1,9 +1,10 @@
 
-## combine a large number of RNA-seq count table file with same gene features as rows
+## combine a large number of RNA-seq count table file (plain text) with same gene features as rows
 
 combine_count_tables <- function(directory = getwd(), suffix = ".txt", geneIDIsRowNames = TRUE, geneIDCol = 1)
 {
     files <- dir(directory, pattern = paste0(suffix, "$"))
+    
     tryCatch(
     ## read files, change colnames, and sort by rownames    
     {
@@ -12,7 +13,7 @@ combine_count_tables <- function(directory = getwd(), suffix = ".txt", geneIDIsR
             if (geneIDIsRowNames)
             {
                 temp_df <- read.delim(x, as.is = TRUE)
-            }else{
+            } else {
                 temp_df <- read.delim(x, as.is = TRUE, row.names = geneIDCol)
             }
             sampleID <- gsub(suffix, "", x)
