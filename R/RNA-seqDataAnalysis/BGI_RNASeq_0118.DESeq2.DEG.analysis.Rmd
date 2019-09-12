@@ -69,10 +69,7 @@ plot.3dPCA <- function(exp.data, meta.data , filename, legend=F)
     
     pc <- prcomp(t(exp.data), scale=T, center=T, retx=TRUE)
     
-    #colors <- c("black", "red","purple", "blue", "green","yellow", "orange", "grey")
     plot3d(pc$x[,1:3], col=as.integer(meta.data$genotypes),size =10, aspect =T)
-    
-    # plot3d(pc$x[,1:3], col=meta.data$col,size =10, aspect =T)
     
     if(legend)
     {
@@ -88,7 +85,6 @@ plot.3dPCA <- function(exp.data, meta.data , filename, legend=F)
 
 
 ## output file name should be space-free
-
 make.movie <- function(out.file=NULL)
 {
     rgl.snapshot(filename=paste0(out.file,".png"), fmt = "png", top = TRUE )
@@ -274,7 +270,7 @@ outputXls <- function(i, dds, contrasts)
     dev.off()
     
     
-    ### top variant genes
+    ### top varying genes
     if (i == 1)
     {
         topVarGenes <- head(order(rowVars(assay(rld)), decreasing = TRUE), 500)
