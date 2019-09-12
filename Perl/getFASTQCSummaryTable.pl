@@ -1,12 +1,13 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl 
 use warnings;
 use strict;
 
 ################################ USAGE ##################################
-# The input for this script is piped by 'cat */fastqc_data.txt' inside a
+# The input for this script is piped  by 'cat */fastqc_data.txt' inside a
 # directory where all FASTQC output are contained
 # The output is a summary table of FASTQC results with rows for each sample
 #########################################################################
+
 
 my %fastqc=();
 my %metrics=();
@@ -61,6 +62,11 @@ print_hash(\%fastqc);
 ## Create a hash of hash        
 sub fill_contents
 {
+    if (!exists ${$_[0]}{"Per tile sequence quality"})
+    {
+        ${$_[0]}{"Per tile sequence quality"} = "NA";
+    }
+  
     %{$fastqc{$fileName}}= %{$_[0]};
     %metrics=();
     $fileName ="";
@@ -95,5 +101,3 @@ sub print_hash
         print "\n";
     }
 }
-        
-
