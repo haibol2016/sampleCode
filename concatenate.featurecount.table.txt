@@ -1,0 +1,1 @@
+awk 'BEGIN{FS=OFS="\t"} FNR == NR && FNR > 6 {a[$1] = $4; if (FNR ==6) {filename = "\t"FILENAME}; next} (FNR >6  && $1 in a) {a[$1] = a[$1]"\t"$4; if (FNR == 6) {filename = filename"\t"FILENAME}} END{print gensub(/.count.txt/, "", "g", filename); for (i in a) {print i, a[i]}}'  *.count.txt
